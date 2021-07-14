@@ -314,12 +314,7 @@ module Mongo
           yield
         rescue Error::SocketError => e
           @error = e
-          @server.unknown!(
-            generation: e.generation,
-            # or description.service_id?
-            service_id: e.service_id,
-            stop_push_monitor: true,
-          )
+          @server.unknown!(generation: e.generation, stop_push_monitor: true)
           raise
         rescue Error::SocketTimeoutError => e
           @error = e

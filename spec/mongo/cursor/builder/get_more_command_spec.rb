@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
 
-# TODO convert, move or delete these tests as part of RUBY-2706.
-
-=begin
 require 'spec_helper'
 
 describe Mongo::Cursor::Builder::GetMoreCommand do
@@ -192,4 +189,3 @@ describe Mongo::Cursor::Builder::GetMoreCommand do
     end
   end
 end
-=end

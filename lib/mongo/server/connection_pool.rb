@@ -277,7 +277,7 @@ module Mongo
       #   and remains so for longer than the wait timeout.
       #
       # @since 2.9.0
-      def check_out(service_id: nil)
+      def check_out
         check_invariants
 
         publish_cmap_event(
@@ -306,7 +306,7 @@ module Mongo
             # a connection while this thread is waiting for one.
             @lock.synchronize do
               until @available_connections.empty?
-                connection = next_available_connection(service_id: service_id)
+                connection = @available_connections.pop
 
                 if connection.pid != pid
                   log_warn("Detected PID change - Mongo client should have been reconnected (old pid #{connection.pid}, new pid #{pid}")
@@ -333,24 +333,6 @@ module Mongo
 
                 @pending_connections << connection
                 throw(:done)
-              end
-
-              if service_id
-                publish_cmap_event(
-                  Monitoring::Event::Cmap::ConnectionCheckOutFailed.new(
-                    @server.address,
-                    # CONNECTION_ERROR is the closest reason.
-                    # Technically we haven't attempted to create a connection
-                    # (because there is no way to request a connection to a
-                    # specific service), but another way of looking at it
-                    # is that the pool did fail to provide a connection as
-                    # requested.
-                    Monitoring::Event::Cmap::ConnectionCheckOutFailed::CONNECTION_ERROR,
-                  ),
-                )
-
-                raise Error::NoServiceConnectionAvailable.generate(
-                  address: @server.address, service_id: service_id)
               end
 
               # Ruby does not allow a thread to lock a mutex which it already
@@ -491,12 +473,8 @@ module Mongo
       # @option options [ true | false ] :lazy If true, do not close any of
       #   the idle connections and instead let them be closed during a
       #   subsequent check out operation.
-      # @option options [ Object ] :service_id Discard state for the specified
-      #   service id only.
       # @option options [ true | false ] :stop_populator Whether to stop
       #   the populator background thread. For internal driver use only.
-      # @option options [ Object ] :service_id Clear connections with
-      #   the specified service id only.
       #
       # @return [ true ] true.
       #
@@ -510,38 +488,18 @@ module Mongo
           stop_populator
         end
 
-        service_id = options && options[:service_id]
-
         @lock.synchronize do
           @generation += 1
 
           publish_cmap_event(
-            Monitoring::Event::Cmap::PoolCleared.new(
-              @server.address,
-              service_id: service_id,
-            )
+            Monitoring::Event::Cmap::PoolCleared.new(@server.address)
           )
 
           unless options && options[:lazy]
-            if service_id
-              loop do
-                conn = @available_connections.detect do |conn|
-                  conn.service_id == service_id
-                end
-                if conn
-                  @available_connections.delete(conn)
-                  conn.disconnect!(reason: :stale)
-                  @populate_semaphore.signal
-                else
-                  break
-                end
-              end
-            else
-              until @available_connections.empty?
-                connection = @available_connections.pop
-                connection.disconnect!(reason: :stale)
-                @populate_semaphore.signal
-              end
+            until @available_connections.empty?
+              connection = @available_connections.pop
+              connection.disconnect!(reason: :stale)
+              @populate_semaphore.signal
             end
           end
         end
@@ -628,10 +586,10 @@ module Mongo
       # @return [ Object ] The result of the block.
       #
       # @since 2.0.0
-      def with_connection(service_id: nil)
+      def with_connection
         raise_if_closed!
 
-        connection = check_out(service_id: service_id)
+        connection = check_out
         yield(connection)
       ensure
         if connection
@@ -747,18 +705,6 @@ module Mongo
 
       private
 
-      def next_available_connection(service_id: nil)
-        if service_id
-          conn = @available_connections.detect do |conn|
-            conn.service_id == service_id
-          end
-          @available_connections.delete(conn)
-          conn
-        else
-          @available_connections.pop
-        end
-      end
-
       def create_connection
         connection = Connection.new(@server, options.merge(
           generation: generation,
@@ -826,11 +772,7 @@ module Mongo
           raise
         end
       rescue Error::SocketError, Error::SocketTimeoutError => exc
-        @server.unknown!(
-          generation: exc.generation,
-          service_id: exc.service_id,
-          stop_push_monitor: true,
-        )
+        @server.unknown!(generation: exc.generation, stop_push_monitor: true)
         raise
       end
 

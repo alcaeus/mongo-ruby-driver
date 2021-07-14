@@ -31,18 +31,15 @@ module Mongo
           # @since 2.9.0
           attr_reader :address
 
-          # @return [ nil | Object ] The service id, if any.
-          attr_reader :service_id
-
           # Create the event.
           #
-          # @param [ Address ] address
-          # @param [ Object ] service_id The service id, if any.
+          # @example Create the event.
+          #   PoolCleared.new(address)
           #
+          # @since 2.9.0
           # @api private
-          def initialize(address, service_id: nil)
+          def initialize(address)
             @address = address
-            @service_id = service_id
           end
 
           # Returns a concise yet useful summary of the event.

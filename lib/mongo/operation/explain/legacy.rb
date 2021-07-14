@@ -32,19 +32,12 @@ module Mongo
 
         private
 
-        def message(connection)
-          if spec[:collation] && !connection.features.collation_enabled?
-            raise Error::UnsupportedCollation
-          end
+        def selector(connection)
+          super.merge(spec[:explain])
+        end
 
-          Protocol::Query.new(
-            db_name,
-            coll_name,
-            Find::Builder::Legacy.selector(spec, connection),
-            options(connection).update(
-              Find::Builder::Legacy.query_options(spec, connection),
-            ),
-          )
+        def message(connection)
+          Protocol::Query.new(db_name, coll_name, command(connection), options(connection))
         end
       end
     end

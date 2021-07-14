@@ -29,20 +29,17 @@ module Mongo
         include ExecutableNoValidate
         include ExecutableTransactionLabel
         include PolymorphicResult
-        include Validatable
 
         private
 
         def selector(connection)
-          {
-            update: coll_name,
-            ordered: ordered?,
-          }
+          { update: coll_name,
+            Protocol::Msg::DATABASE_IDENTIFIER => db_name,
+            ordered: ordered? }
         end
 
         def message(connection)
-          updates = validate_updates(connection, send(IDENTIFIER))
-          section = Protocol::Msg::Section1.new(IDENTIFIER, updates)
+          section = Protocol::Msg::Section1.new(IDENTIFIER, send(IDENTIFIER))
           Protocol::Msg.new(flags, {}, command(connection), section)
         end
       end

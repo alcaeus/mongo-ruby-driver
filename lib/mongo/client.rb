@@ -67,7 +67,6 @@ module Mongo
       :database,
       :heartbeat_frequency,
       :id_generator,
-      :load_balanced,
       :local_threshold,
       :logger,
       :log_prefix,
@@ -244,10 +243,7 @@ module Mongo
     # @option options [ Symbol ] :connect Deprecated - use :direct_connection
     #   option instead of this option. The connection method to use. This
     #   forces the cluster to behave in the specified way instead of
-    #   auto-discovering. One of :direct, :replica_set, :sharded,
-    #   :load_balanced. If :connect is set to :load_balanced, the driver
-    #   will behave as if the server is a load balancer even if it isn't
-    #   connected to a load balancer.
+    #   auto-discovering. One of :direct, :replica_set, :sharded
     # @option options [ Float ] :connect_timeout The timeout, in seconds, to
     #   attempt a connection.
     # @option options [ String ] :database The database to connect to.
@@ -255,8 +251,6 @@ module Mongo
     #   for the server monitor to refresh its description via hello.
     # @option options [ Object ] :id_generator A custom object to generate ids
     #   for documents. Must respond to #generate.
-    # @option options [ true | false ] :load_balanced Whether to expect to
-    #   connect to a load balancer.
     # @option options [ Integer ] :local_threshold The local threshold boundary
     #   in seconds for selecting a near server for an operation.
     # @option options [ Logger ] :logger A custom logger to use.
@@ -1240,15 +1234,9 @@ module Mongo
         raise ArgumentError, "If :write and :write_concern are both given, they must be identical: #{options.inspect}"
       end
 
-      connect = options[:connect]&.to_sym
-
-      if connect && !%i(direct replica_set sharded load_balanced).include?(connect)
-        raise ArgumentError, "Invalid :connect option value: #{connect}"
-      end
-
       if options[:direct_connection]
-        if connect && connect != :direct
-          raise ArgumentError, "Conflicting client options: direct_connection=true and connect=#{connect}"
+        if options[:connect] && options[:connect].to_sym != :direct
+          raise ArgumentError, "Conflicting client options: direct_connection=true and connect=#{options[:connect]}"
         end
         # When a new client is created, we get the list of seed addresses
         if addresses && addresses.length > 1
@@ -1260,26 +1248,8 @@ module Mongo
         end
       end
 
-      if options[:load_balanced]
-        if addresses && addresses.length > 1
-          raise ArgumentError, "load_balanced=true cannot be used with multiple seeds"
-        end
-
-        if options[:direct_connection]
-          raise ArgumentError, "direct_connection=true cannot be used with load_balanced=true"
-        end
-
-        if connect && connect != :load_balanced
-          raise ArgumentError, "connect=#{connect} cannot be used with load_balanced=true"
-        end
-
-        if options[:replica_set]
-          raise ArgumentError, "load_balanced=true cannot be used with replica_set option"
-        end
-      end
-
-      if options[:direct_connection] == false && connect && connect == :direct
-        raise ArgumentError, "Conflicting client options: direct_connection=false and connect=#{connect}"
+      if options[:direct_connection] == false && options[:connect] && options[:connect].to_sym == :direct
+        raise ArgumentError, "Conflicting client options: direct_connection=false and connect=#{options[:connect]}"
       end
 
       %i(connect_timeout socket_timeout).each do |key|

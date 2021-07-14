@@ -79,12 +79,11 @@ module Mongo
           # @since 2.2.0
           def specification
             spec = {
-              selector: aggregation_command,
-              db_name: database.name,
-              read: view.read_preference,
-              session: @options[:session],
-              collation: @options[:collation],
-            }
+                    selector: aggregation_command,
+                    db_name: database.name,
+                    read: view.read_preference,
+                    session: @options[:session]
+                   }
             if write?
               spec.update(write_concern: write_concern)
             end

@@ -67,21 +67,17 @@ module Mongo
             @server_descriptions[server.address.to_s] = server.description
           end
 
-          if is_a?(LoadBalanced)
-            @compatible = true
-          else
-            begin
-              server_descriptions.each do |address_str, desc|
-                unless desc.unknown?
-                  desc.features.check_driver_support!
-                end
+          begin
+            server_descriptions.each do |address_str, desc|
+              unless desc.unknown?
+                desc.features.check_driver_support!
               end
-            rescue Error::UnsupportedFeatures => e
-              @compatible = false
-              @compatibility_error = e
-            else
-              @compatible = true
             end
+          rescue Error::UnsupportedFeatures => e
+            @compatible = false
+            @compatibility_error = e
+          else
+            @compatible = true
           end
 
           @have_data_bearing_servers = false

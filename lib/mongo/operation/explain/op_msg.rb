@@ -32,15 +32,7 @@ module Mongo
         private
 
         def selector(connection)
-          # The mappings are BSON::Documents and as such store keys as
-          # strings, the spec here has symbol keys.
-          spec = BSON::Document.new(self.spec)
-          {
-            explain: {
-              find: coll_name,
-            }.update(Find::Builder::Command.selector(spec, connection)),
-            Protocol::Msg::DATABASE_IDENTIFIER => db_name,
-          }.update(spec[:explain] || {})
+          super.merge(spec[:explain])
         end
       end
     end

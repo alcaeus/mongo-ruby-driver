@@ -28,38 +28,42 @@ module Mongo
     class CursorReaper
       include Retryable
 
-      # The default time interval for the cursor reaper to send pending
-      # kill cursors operations.
+      # The default time interval for the cursor reaper to send pending kill cursors operations.
       #
       # @since 2.3.0
       FREQUENCY = 1.freeze
 
       # Create a cursor reaper.
       #
-      # @param [ Cluster ] cluster The cluster.
+      # @example Create a CursorReaper.
+      #   Mongo::Cluster::CursorReaper.new(cluster)
       #
       # @api private
-      def initialize(cluster)
-        @cluster = cluster
+      #
+      # @since 2.3.0
+      def initialize
         @to_kill = {}
-        @active_cursor_ids = Set.new
+        @active_cursors = Set.new
         @mutex = Mutex.new
       end
 
-      attr_reader :cluster
-
       # Schedule a kill cursors operation to be eventually executed.
       #
-      # @param [ Cursor::KillSpec ] kill_spec The kill specification.
-      # @param [ Mongo::Server ] server The server to send the kill cursors
-      #   operation to.
+      # @example Schedule a kill cursors operation.
+      #   cursor_reaper.schedule_kill_cursor(id, op_spec, server)
+      #
+      # @param [ Integer ] id The id of the cursor to kill.
+      # @param [ Hash ] op_spec The spec for the kill cursors op.
+      # @param [ Mongo::Server ] server The server to send the kill cursors operation to.
       #
       # @api private
-      def schedule_kill_cursor(kill_spec, server)
+      #
+      # @since 2.3.0
+      def schedule_kill_cursor(id, op_spec, server)
         @mutex.synchronize do
-          if @active_cursor_ids.include?(kill_spec.cursor_id)
-            @to_kill[server.address.seed] ||= Set.new
-            @to_kill[server.address.seed] << kill_spec
+          if @active_cursors.include?(id)
+            @to_kill[server] ||= Set.new
+            @to_kill[server] << op_spec
           end
         end
       end
@@ -83,7 +87,7 @@ module Mongo
         end
 
         @mutex.synchronize do
-          @active_cursor_ids << id
+          @active_cursors << id
         end
       end
 
@@ -106,7 +110,7 @@ module Mongo
         end
 
         @mutex.synchronize do
-          @active_cursor_ids.delete(id)
+          @active_cursors.delete(id)
         end
       end
 
@@ -119,70 +123,33 @@ module Mongo
       #
       # @since 2.3.0
       def kill_cursors
-        # TODO optimize this to batch kill cursor operations for the same
-        # server/database/collection instead of killing each cursor
-        # individually.
+        to_kill_copy = {}
+        active_cursors_copy = []
 
-        loop do
-          server_address_str = nil
+        @mutex.synchronize do
+          to_kill_copy = @to_kill.dup
+          active_cursors_copy = @active_cursors.dup
+          @to_kill = {}
+        end
 
-          kill_spec = @mutex.synchronize do
-            # Find a server that has any cursors scheduled for destruction.
-            server_address_str, specs =
-              @to_kill.detect { |server_address_str, specs| specs.any? }
-
-            if specs.nil?
-              # All servers have empty specs, nothing to do.
-              return
-            end
-
-            # Note that this mutates the spec in the queue.
-            # If the kill cursor operation fails, we don't attempt to
-            # kill that cursor again.
-            spec = specs.take(1).tap do |arr|
-              specs.subtract(arr)
-            end.first
-
-            unless @active_cursor_ids.include?(spec.cursor_id)
-              # The cursor was already killed, typically because it has
-              # been iterated to completion. Remove the kill spec from
-              # our records without doing any more work.
-              spec = nil
-            end
-
-            spec
-          end
-
-          # If there was a spec to kill but its cursor was already killed,
-          # look for another spec.
-          next unless kill_spec
-
-          # We could also pass kill_spec directly into the KillCursors
-          # operation, though this would make that operation have a
-          # different API from all of the other ones which accept hashes.
-          spec = {
-            cursor_ids: [kill_spec.cursor_id],
-            coll_name: kill_spec.coll_name,
-            db_name: kill_spec.db_name,
-          }
-          op = Operation::KillCursors.new(spec)
-
-          server = cluster.servers.detect do |server|
-            server.address.seed == server_address_str
-          end
-
-          unless server
-            # TODO We currently don't have a server for the address that the
-            # cursor is associated with. We should leave the cursor in the
-            # queue to be killed at a later time (when the server comes back).
-            next
-          end
-
+        to_kill_copy.each do |server, op_specs|
           options = {
             server_api: server.options[:server_api],
-            service_id: kill_spec.service_id,
           }
-          op.execute(server, context: Operation::Context.new(options: options))
+          context = Operation::Context.new(options: options)
+          op_specs.each do |op_spec|
+            if server.features.find_command_enabled?
+              Cursor::Builder::KillCursorsCommand.update_cursors(op_spec, active_cursors_copy.to_a)
+              if Cursor::Builder::KillCursorsCommand.get_cursors_list(op_spec).size > 0
+                Operation::KillCursors.new(op_spec).execute(server, context: context)
+              end
+            else
+              Cursor::Builder::OpKillCursors.update_cursors(op_spec, active_cursors_copy.to_a)
+              if Cursor::Builder::OpKillCursors.get_cursors_list(op_spec).size > 0
+                Operation::KillCursors.new(op_spec).execute(server, context: context)
+              end
+            end
+          end
         end
       end
       alias :execute :kill_cursors

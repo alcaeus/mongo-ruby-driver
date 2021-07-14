@@ -24,6 +24,16 @@ module Mongo
       # @since 2.0.0
       module Readable
 
+        # The query modifier constant.
+        #
+        # @since 2.2.0
+        QUERY = '$query'.freeze
+
+        # The modifiers option constant.
+        #
+        # @since 2.2.0
+        MODIFIERS = 'modifiers'.freeze
+
         # Execute an aggregation on the collection view.
         #
         # @example Aggregate documents.
@@ -159,15 +169,13 @@ module Mongo
           selector = ServerSelector.get(read_pref || server_selector)
           with_session(opts) do |session|
             read_with_retry(session, selector) do |server|
+              apply_collation!(cmd, server, opts)
               Operation::Count.new(
-                selector: cmd,
-                db_name: database.name,
-                options: {:limit => -1},
-                read: read_pref,
-                session: session,
-                # For some reason collation was historically accepted as a
-                # string key. Note that this isn't documented as valid usage.
-                collation: opts[:collation] || opts['collation'] || collation,
+                                     :selector => cmd,
+                                     :db_name => database.name,
+                                     :options => {:limit => -1},
+                                     :read => read_pref,
+                                     :session => session,
               ).execute(server, context: Operation::Context.new(client: client, session: session))
             end.n.to_i
           end
@@ -235,8 +243,8 @@ module Mongo
           read_pref = opts[:read] || read_preference
           selector = ServerSelector.get(read_pref || server_selector)
           with_session(opts) do |session|
+            context = Operation::Context.new(client: client, session: session)
             read_with_retry(session, selector) do |server|
-              context = Operation::Context.new(client: client, session: session)
               if server.description.server_version_gte?('5.0')
                 pipeline = [
                   {'$collStats' => {'count' => {}}},
@@ -307,16 +315,14 @@ module Mongo
           selector = ServerSelector.get(read_pref || server_selector)
           with_session(opts) do |session|
             read_with_retry(session, selector) do |server|
-              Operation::Distinct.new(
-                selector: cmd,
-                db_name: database.name,
-                options: {:limit => -1},
-                read: read_pref,
-                session: session,
-                # For some reason collation was historically accepted as a
-                # string key. Note that this isn't documented as valid usage.
-                collation: opts[:collation] || opts['collation'] || collation,
-              ).execute(server, context: Operation::Context.new(client: client, session: session))
+              apply_collation!(cmd, server, opts)
+              Operation::Distinct.new({
+                                        :selector => cmd,
+                                        :db_name => database.name,
+                                        :options => {:limit => -1},
+                                        :read => read_pref,
+                                        :session => session,
+                                       }).execute(server, context: Operation::Context.new(client: client, session: session))
             end.first['values']
           end
         end
@@ -536,11 +542,7 @@ module Mongo
           configure(:sort, spec)
         end
 
-        # If called without arguments or with a nil argument, returns
-        # the legacy (OP_QUERY) server modifiers for the current view.
-        # If called with a non-nil argument, which must be a Hash or a
-        # subclass, merges the provided modifiers into the current view.
-        # Both string and symbol keys are allowed in the input hash.
+        # “meta” operators that let you modify the output or behavior of a query.
         #
         # @example Set the modifiers document.
         #   view.modifiers(:$orderby => Mongo::Index::ASCENDING)
@@ -551,11 +553,8 @@ module Mongo
         #
         # @since 2.1.0
         def modifiers(doc = nil)
-          if doc.nil?
-            Operation::Find::Builder::Modifiers.map_server_modifiers(options)
-          else
-            new(options.merge(Operation::Find::Builder::Modifiers.map_driver_options(BSON::Document.new(doc))))
-          end
+          return Builder::Modifiers.map_server_modifiers(options) if doc.nil?
+          new(options.merge(Builder::Modifiers.map_driver_options(doc)))
         end
 
         # A cumulative time limit in milliseconds for processing get more operations
@@ -646,42 +645,34 @@ module Mongo
 
         def parallel_scan(cursor_count, options = {})
           if options[:session]
-            # The session would be overwritten by the one in +options+ later.
             session = client.send(:get_session, @options)
           else
             session = nil
           end
           server = server_selector.select_server(cluster, nil, session)
-          spec = {
-            coll_name: collection.name,
-            db_name: database.name,
-            cursor_count: cursor_count,
-            read_concern: read_concern,
-            session: session,
-          }.update(options)
-          session = spec[:session]
-          op = Operation::ParallelScan.new(spec)
-          # Note that the context object shouldn't be reused for subsequent
-          # GetMore operations.
-          context = Operation::Context.new(client: client, session: session)
-          result = op.execute(server, context: context)
-          result.cursor_ids.map do |cursor_id|
-            spec = {
-              cursor_id: cursor_id,
-              coll_name: collection.name,
-              db_name: database.name,
-              session: session,
-              batch_size: batch_size,
-              to_return: 0,
-              # max_time_ms is not being passed here, I assume intentionally?
-            }
-            op = Operation::GetMore.new(spec)
-            context = Operation::Context.new(
-              client: client,
-              session: session,
-              service_id: result.connection_description.service_id,
-            )
-            result = op.execute(server, context: context)
+          cmd = Operation::ParallelScan.new({
+                  :coll_name => collection.name,
+                  :db_name => database.name,
+                  :cursor_count => cursor_count,
+                  :read_concern => read_concern,
+                  :session => session,
+                }.merge!(options))
+          cmd.execute(server, context: Operation::Context.new(client: client, session: session)).cursor_ids.map do |cursor_id|
+            result = if server.with_connection { |connection| connection.features }.find_command_enabled?
+              Operation::GetMore.new({
+                :selector => {:getMore => BSON::Int64.new(cursor_id),
+                             :collection => collection.name},
+                :db_name => database.name,
+                :session => session,
+              }).execute(server, context: Operation::Context.new(client: client, session: session))
+             else
+              Operation::GetMore.new({
+                :to_return => 0,
+                :cursor_id => BSON::Int64.new(cursor_id),
+                :db_name => database.name,
+                :coll_name => collection.name
+              }).execute(server, context: Operation::Context.new(client: client, session: session))
+            end
             Cursor.new(self, result, server, session: session)
           end
         end

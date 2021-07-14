@@ -78,7 +78,6 @@ module Mongo
         # @param [ Integer ] request_id The request id.
         # @param [ Integer ] operation_id The operation id.
         # @param [ BSON::Document ] command The command arguments.
-        # @param [ Object ] service_id The service id, if any.
         #
         # @since 2.1.0
         # @api private
@@ -141,7 +140,6 @@ module Mongo
         # @param [ Server::Address ] address The server address.
         # @param [ Integer ] operation_id The operation id.
         # @param [ Hash ] payload The message payload.
-        # @param [ Object ] service_id The service id, if any.
         #
         # @return [ CommandStarted ] The event.
         #

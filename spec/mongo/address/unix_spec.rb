@@ -28,7 +28,6 @@ describe Mongo::Address::Unix do
   end
 
   describe '#socket' do
-    require_unix_socket
 
     let(:address) do
       "/tmp/mongodb-#{SpecConfig.instance.any_port}.sock"

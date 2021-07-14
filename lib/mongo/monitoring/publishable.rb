@@ -35,6 +35,7 @@ module Mongo
       def publish_sdam_event(topic, event)
         return unless monitoring?
 
+        #log_debug("EVENT: #{event.summary}")
         monitoring.succeeded(topic, event)
       end
 
@@ -48,13 +49,12 @@ module Mongo
 
       def command_started(address, operation_id, payload,
         socket_object_id: nil, connection_id: nil, connection_generation: nil,
-        server_connection_id: nil, service_id: nil
+        server_connection_id: nil
       )
         event = Event::CommandStarted.generate(address, operation_id, payload,
             socket_object_id: socket_object_id, connection_id: connection_id,
             connection_generation: connection_generation,
             server_connection_id: server_connection_id,
-            service_id: service_id,
           )
         monitoring.started(
           Monitoring::COMMAND,

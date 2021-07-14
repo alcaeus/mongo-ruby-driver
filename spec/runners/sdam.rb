@@ -37,7 +37,6 @@ module Mongo
           when 'PossiblePrimary' then server.unknown?
           when 'RSGhost' then server.ghost?
           when 'RSOther' then server.other?
-          when 'LoadBalancer' then server.load_balancer?
           else
             raise "Unknown type #{type}"
         end

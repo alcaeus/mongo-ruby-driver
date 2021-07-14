@@ -20,14 +20,12 @@ require 'mongo/operation/shared/causal_consistency_supported'
 require 'mongo/operation/shared/write'
 require 'mongo/operation/shared/idable'
 require 'mongo/operation/shared/specifiable'
-require 'mongo/operation/shared/validatable'
 require 'mongo/operation/shared/object_id_generator'
 require 'mongo/operation/shared/op_msg_or_command'
 require 'mongo/operation/shared/op_msg_or_find_command'
 
 require 'mongo/operation/op_msg_base'
 require 'mongo/operation/command'
-require 'mongo/operation/write_command'
 require 'mongo/operation/aggregate'
 require 'mongo/operation/result'
 require 'mongo/operation/collections_info'
@@ -56,14 +54,6 @@ require 'mongo/operation/drop_index'
 
 module Mongo
 
-  # This module encapsulates all of the operation classes defined by the driver.
-  #
-  # The operation classes take Ruby options as constructor parameters.
-  # For example, :read contains read preference and :read_concern contains read
-  # concern, whereas server commands use readConcern field for the read
-  # concern and read preference is passed as $readPreference or secondaryOk
-  # wire protocol flag bit.
-  #
   # @api private
   module Operation
 

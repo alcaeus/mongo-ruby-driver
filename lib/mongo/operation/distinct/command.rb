@@ -32,12 +32,6 @@ module Mongo
 
         private
 
-        def selector(connection)
-          selector = spec[:selector]
-          selector = apply_collation(selector, connection, spec[:collation])
-          selector
-        end
-
         def message(connection)
           Protocol::Query.new(db_name, Database::COMMAND, command(connection), options(connection))
         end

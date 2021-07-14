@@ -215,8 +215,7 @@ module Mongo
           old_description = server.description
 
           new_description = Description.new(server.address, result,
-            average_round_trip_time: server.round_trip_time_averager.average_round_trip_time
-          )
+            server.round_trip_time_averager.average_round_trip_time)
 
           server.cluster.run_sdam_flow(server.description, new_description, awaited: awaited)
 

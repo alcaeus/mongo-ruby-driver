@@ -80,8 +80,6 @@ describe Mongo::Cursor do
     end
 
     context 'server is unknown' do
-      require_topology :single, :replica_set, :sharded
-
       let(:server) do
         view.send(:server_selector).select_server(authorized_client.cluster).tap do |server|
           authorized_client.cluster.disconnect!
@@ -331,7 +329,8 @@ describe Mongo::Cursor do
 
       before do
         authorized_collection.insert_many(documents)
-        cluster.schedule_kill_cursor(cursor.kill_spec,
+        cluster.schedule_kill_cursor(cursor.id,
+                                     cursor.send(:kill_cursors_op_spec),
                                      cursor.instance_variable_get(:@server))
       end
 
@@ -430,7 +429,7 @@ describe Mongo::Cursor do
 
       it 'removes the cursor id from the active cursors tracked by the cluster cursor manager' do
         enum.next
-        expect(cursor_reaper.instance_variable_get(:@active_cursor_ids)).not_to include(cursor_id)
+        expect(cursor_reaper.instance_variable_get(:@active_cursors)).not_to include(cursor_id)
       end
     end
   end
@@ -556,17 +555,8 @@ describe Mongo::Cursor do
         db_name: SpecConfig.instance.test_db, coll_name: TEST_COLL }
     end
 
-    let(:conn_desc) do
-      double('connection description').tap do |cd|
-        allow(cd).to receive(:service_id).and_return(nil)
-      end
-    end
-
     let(:reply) do
-      double('reply').tap do |reply|
-        allow(reply).to receive(:is_a?).with(Mongo::Operation::Result).and_return(true)
-        allow(reply).to receive(:namespace)
-        allow(reply).to receive(:connection_description).and_return(conn_desc)
+      Mongo::Operation::Find.new(query_spec).tap do |reply|
         allow(reply).to receive(:cursor_id).and_return(42)
       end
     end

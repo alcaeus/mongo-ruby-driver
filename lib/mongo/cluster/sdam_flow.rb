@@ -105,11 +105,6 @@ class Mongo::Cluster
       end
 
       case topology
-      when Topology::LoadBalanced
-        @updated_desc = ::Mongo::Server::Description::LoadBalancer.new(
-          updated_desc.address,
-        )
-        update_server_descriptions
       when Topology::Single
         if topology.replica_set_name
           if updated_desc.replica_set_name != topology.replica_set_name
@@ -117,7 +112,7 @@ class Mongo::Cluster
               "Server #{updated_desc.address.to_s} has an incorrect replica set name '#{updated_desc.replica_set_name}'; expected '#{topology.replica_set_name}'"
             )
             @updated_desc = ::Mongo::Server::Description.new(updated_desc.address,
-              {}, average_round_trip_time: updated_desc.average_round_trip_time)
+              {}, updated_desc.average_round_trip_time)
             update_server_descriptions
           end
         end
@@ -234,7 +229,7 @@ class Mongo::Cluster
 
       if stale_primary?
         @updated_desc = ::Mongo::Server::Description.new(updated_desc.address,
-          {}, average_round_trip_time: updated_desc.average_round_trip_time)
+          {}, updated_desc.average_round_trip_time)
         update_server_descriptions
         check_if_has_primary
         return
@@ -263,8 +258,7 @@ class Mongo::Cluster
         if server.address != updated_desc.address
           if server.primary?
             server.update_description(::Mongo::Server::Description.new(
-              server.address, {},
-              average_round_trip_time: server.description.average_round_trip_time))
+              server.address, {}, server.description.average_round_trip_time))
           end
         end
       end

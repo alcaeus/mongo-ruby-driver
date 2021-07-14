@@ -251,7 +251,7 @@ module Mongo
       # TODO put the list of read options in a class-level constant when
       # we figure out what the full set of them is.
       options = Hash[self.options.reject do |key, value|
-        %w(read read_preference read_concern).include?(key.to_s)
+        %w(read read_preference).include?(key.to_s)
       end]
       options.update(Utils.slice_hash(opts, *TIME_SERIES_OPTIONS.keys))
       # Converting Ruby spelled time series options to server style.
@@ -269,17 +269,17 @@ module Mongo
         else
           self.write_concern
         end
+        server = next_primary(nil, session)
+        if (options[:collation] || options[Operation::COLLATION]) && !server.with_connection { |connection| connection.features }.collation_enabled?
+          raise Error::UnsupportedCollation
+        end
 
-        context = Operation::Context.new(client: client, session: session)
-        Operation::Create.new(
-          selector: operation,
-          db_name: database.name,
-          write_concern: write_concern,
-          session: session,
-          # Note that these are collection options, collation isn't
-          # taken from options passed to the create method.
-          collation: options[:collation] || options['collation'],
-        ).execute(next_primary(nil, session), context: context)
+        Operation::Create.new({
+                                selector: operation,
+                                db_name: database.name,
+                                write_concern: write_concern,
+                                session: session,
+                                }).execute(server, context: Operation::Context.new(client: client, session: session))
       end
     end
 
@@ -353,8 +353,8 @@ module Mongo
     # @option options [ true, false ] :no_cursor_timeout The server normally times out idle
     #   cursors after an inactivity period (10 minutes) to prevent excess memory use.
     #   Set this option to prevent that.
-    # @option options [ true, false ] :oplog_replay For internal replication
-    #   use only, applications should not set this option.
+    # @option options [ true, false ] :oplog_replay Internal replication use only - driver
+    #   should not set.
     # @option options [ Hash ] :projection The fields to include or exclude from each doc
     #   in the result set.
     # @option options [ Session ] :session The session to use.

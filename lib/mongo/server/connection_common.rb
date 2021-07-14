@@ -57,29 +57,20 @@ module Mongo
       # @param [ Server::AppMetadata ] app_metadata Application metadata
       # @param [ BSON::Document ] speculative_auth_doc The speculative
       #   authentication document, if any.
-      # @param [ true | false ] load_balancer Whether the connection is to
-      #   a load balancer.
       # @param server_api [ Hash | nil ] server_api Server API version.
       #
       # @return [BSON::Document] Document that should be sent to a server
       #     for handshake purposes.
       #
       # @api private
-      def handshake_document(app_metadata, speculative_auth_doc: nil, load_balancer: false, server_api: nil)
+      def handshake_document(app_metadata, speculative_auth_doc: nil, server_api: nil)
         serv_api = app_metadata.server_api || server_api
         document = if serv_api
                      HELLO_DOC.merge(Utils.transform_server_api(serv_api))
                    else
                      LEGACY_HELLO_DOC
                    end
-        document.merge(app_metadata.validated_document).tap do |doc|
-          if speculative_auth_doc
-            doc.update(speculativeAuthenticate: speculative_auth_doc)
-          end
-          if load_balancer
-            doc.update(loadBalanced: true)
-          end
-        end
+        document.merge(app_metadata.validated_document)
       end
 
 
@@ -130,18 +121,10 @@ module Mongo
         if respond_to?(:id)
           note << ", connection #{generation}:#{id}"
         end
-        # Non-monitoring connections have service id.
-        # Monitoring connections do not.
-        if respond_to?(:service_id) && service_id
-          note << ", service id #{service_id}"
-        end
         e.add_note(note)
         if respond_to?(:generation)
           # Non-monitoring connections
           e.generation = generation
-          if respond_to?(:description)
-            e.service_id = service_id
-          end
         end
         raise e
       end

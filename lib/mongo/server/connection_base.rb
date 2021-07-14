@@ -88,11 +88,6 @@ module Mongo
         :max_message_size,
         :mongos?
 
-      # @return [ nil | Object ] The service id, if any.
-      def service_id
-        description&.service_id
-      end
-
       # Connection pool generation from which this connection was created.
       # May be nil.
       #
@@ -172,7 +167,6 @@ module Mongo
             socket_object_id: socket.object_id, connection_id: id,
             connection_generation: generation,
             server_connection_id: description.server_connection_id,
-            service_id: description.service_id,
           )
           start = Utils.monotonic_time
           result = nil
@@ -190,7 +184,6 @@ module Mongo
             command_failed(nil, address, operation_id, message.payload,
               e.message, total_duration,
               started_event: started_event,
-              service_id: description.service_id,
             )
             raise
           else
@@ -198,7 +191,6 @@ module Mongo
             command_completed(result, address, operation_id, message.payload,
               total_duration,
               started_event: started_event,
-              service_id: description.service_id,
             )
           end
           if result && context.decrypt?

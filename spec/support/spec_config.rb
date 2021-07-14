@@ -15,10 +15,7 @@ class SpecConfig
     if ENV['MONGODB_URI']
       @mongodb_uri = Mongo::URI.new(ENV['MONGODB_URI'])
       @uri_options = Mongo::Options::Mapper.transform_keys_to_symbols(@mongodb_uri.uri_options)
-      if ENV['TOPOLOGY'] == 'load-balanced'
-        @addresses = @mongodb_uri.servers
-        @connect_options = { connect: :load_balanced }
-      elsif @uri_options[:replica_set]
+      if @uri_options[:replica_set]
         @addresses = @mongodb_uri.servers
         @connect_options = { connect: :replica_set, replica_set: @uri_options[:replica_set] }
       elsif @uri_options[:connect] == :sharded || ENV['TOPOLOGY'] == 'sharded-cluster'
@@ -32,6 +29,15 @@ class SpecConfig
         @ssl = (ENV['SSL'] == 'ssl') || (ENV['SSL_ENABLED'] == 'true')
       else
         @ssl = @uri_options[:ssl]
+      end
+    elsif ENV['MONGODB_ADDRESSES']
+      @addresses = ENV['MONGODB_ADDRESSES'] ? ENV['MONGODB_ADDRESSES'].split(',').freeze : [ '127.0.0.1:27017' ].freeze
+      if ENV['RS_ENABLED']
+        @connect_options = { connect: :replica_set, replica_set: ENV['RS_NAME'] }
+      elsif ENV['SHARDED_ENABLED']
+        @connect_options = { connect: :sharded }
+      else
+        @connect_options = { connect: :direct }
       end
     end
 
@@ -627,10 +633,5 @@ EOT
     else
       creds
     end
-  end
-
-  # Returns whether the test suite was configured with a single mongos.
-  def single_mongos?
-    %w(1 true yes).include?(ENV['SINGLE_MONGOS'])
   end
 end

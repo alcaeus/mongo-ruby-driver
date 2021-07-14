@@ -54,8 +54,6 @@ module Mongo
     #   done by this server. Note: setting this option to false will make
     #   the server non-functional. It is intended for use in tests which
     #   manually invoke SDAM state transitions.
-    # @option options [ true | false ] :load_balancer Whether this server
-    #   is a load balancer.
     #
     # @since 2.0.0
     def initialize(address, cluster, monitoring, event_listeners, options = {})
@@ -71,8 +69,7 @@ module Mongo
       end
       @scan_semaphore = DistinguishingSemaphore.new
       @round_trip_time_averager = RoundTripTimeAverager.new
-      @description = Description.new(address, {},
-        load_balancer: !!@options[:load_balancer])
+      @description = Description.new(address, {})
       @last_scan = nil
       @last_scan_monotime = nil
       unless options[:monitoring_io] == false
@@ -183,7 +180,6 @@ module Mongo
                    :secondary?,
                    :standalone?,
                    :unknown?,
-                   :load_balancer?,
                    :last_write_date,
                    :logical_session_timeout
 
@@ -224,6 +220,20 @@ module Mongo
     def ==(other)
       return false unless other.is_a?(Server)
       address == other.address
+    end
+
+    # Get a new context for this server in which to send messages.
+    #
+    # @example Get the server context.
+    #   server.context
+    #
+    # @return [ Mongo::Server::Context ] context The server context.
+    #
+    # @since 2.0.0
+    #
+    # @deprecated Will be removed in version 3.0
+    def context
+      Context.new(self)
     end
 
     # Determine if a connection to the server is able to be established and
@@ -317,8 +327,6 @@ module Mongo
     # @api private
     def status
       case
-      when load_balancer?
-        'LB'
       when primary?
         'PRIMARY'
       when secondary?
@@ -425,8 +433,8 @@ module Mongo
     # @return [ Object ] The result of the block execution.
     #
     # @since 2.3.0
-    def with_connection(service_id: nil, &block)
-      pool.with_connection(service_id: service_id, &block)
+    def with_connection(&block)
+      pool.with_connection(&block)
     end
 
     # Handle handshake failure.
@@ -436,11 +444,7 @@ module Mongo
     def handle_handshake_failure!
       yield
     rescue Mongo::Error::SocketError, Mongo::Error::SocketTimeoutError => e
-      unknown!(
-        generation: e.generation,
-        service_id: e.service_id,
-        stop_push_monitor: true,
-      )
+      unknown!(generation: e.generation, stop_push_monitor: true)
       raise
     end
 
@@ -463,11 +467,7 @@ module Mongo
       raise
     rescue Mongo::Error::SocketError => e
       # non-timeout network error
-      unknown!(
-        generation: e.generation,
-        service_id: e.service_id,
-        stop_push_monitor: true,
-      )
+      unknown!(generation: e.generation, stop_push_monitor: true)
       raise
     rescue Auth::Unauthorized
       # auth error, keep server description and topology as they are
@@ -513,33 +513,13 @@ module Mongo
     #   respective server is cleared. Set this option to true to keep the
     #   existing connection pool (required when handling not master errors
     #   on 4.2+ servers).
-    # @option options [ Object ] :service_id Discard state for the specified
-    #   service id only.
     # @option options [ TopologyVersion ] :topology_version Topology version
     #   of the error response that is causing the server to be marked unknown.
     # @option options [ true | false ] :stop_push_monitor Whether to stop
     #   the PushMonitor associated with the server, if any.
-    # @option options [ Object ] :service_id Discard state for the specified
-    #   service id only.
     #
     # @since 2.4.0, SDAM events are sent as of version 2.7.0
     def unknown!(options = {})
-      if load_balancer?
-        # When the client is in load-balanced topology, servers (the one and
-        # only that can be) starts out as a load balancer and stays as a
-        # load balancer indefinitely. As such it is not marked unknown.
-        #
-        # However, this method also clears connection pool for the server
-        # when the latter is marked unknown, and this part needs to happen
-        # when the server is a load balancer.
-        if service_id = options[:service_id]
-          pool.disconnect!(service_id: service_id)
-        elsif Lint.enabled?
-          raise Error::LintError, 'Load balancer was asked to be marked unknown without a service id'
-        end
-        return
-      end
-
       if options[:generation] && options[:generation] < pool.generation
         return
       end
@@ -557,15 +537,10 @@ module Mongo
       # SDAM flow will update description on the server without in-place
       # mutations and invoke SDAM transitions as needed.
       config = {}
-      if options[:service_id]
-        config['serviceId'] = options[:service_id]
-      end
       if options[:topology_version]
         config['topologyVersion'] = options[:topology_version]
       end
-      new_description = Description.new(address, config,
-        load_balancer: load_balancer?,
-      )
+      new_description = Description.new(address, config)
       cluster.run_sdam_flow(description, new_description, options)
     end
 
@@ -574,14 +549,11 @@ module Mongo
       @description = description
     end
 
-    # @param [ Object ] :service_id Close connections with the specified
-    #   service id only.
-    #
     # @api private
-    def clear_connection_pool(service_id: nil)
+    def clear_connection_pool
       @pool_lock.synchronize do
         if @pool
-          @pool.disconnect!(service_id: service_id)
+          @pool.disconnect!
         end
       end
     end
@@ -605,6 +577,7 @@ require 'mongo/server/connection_base'
 require 'mongo/server/pending_connection'
 require 'mongo/server/connection'
 require 'mongo/server/connection_pool'
+require 'mongo/server/context'
 require 'mongo/server/description'
 require 'mongo/server/monitor'
 require 'mongo/server/round_trip_time_averager'

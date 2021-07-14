@@ -31,19 +31,6 @@ module Mongo
           add_error_labels(connection, context) do
             add_server_diagnostics(connection) do
               get_result(connection, context, options).tap do |result|
-                if session
-                  if session.in_transaction? &&
-                    connection.description.load_balancer?
-                  then
-                    if session.pinned_service_id
-                      unless session.pinned_service_id == connection.service_id
-                        raise Error::InternalDriverError, "Expected operation to use service #{session.pinned_session_id} but it used #{connection.service_id}"
-                      end
-                    else
-                      session.pin_to_service(connection.service_id)
-                    end
-                  end
-                end
                 process_result(result, connection)
               end
             end
@@ -118,7 +105,6 @@ module Mongo
           connection.server.unknown!(
             keep_connection_pool: keep_pool,
             generation: connection.generation,
-            service_id: connection.service_id,
             topology_version: result.topology_version,
           )
 

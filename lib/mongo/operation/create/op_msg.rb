@@ -26,13 +26,6 @@ module Mongo
       # @since 2.5.2
       class OpMsg < OpMsgBase
         include ExecutableTransactionLabel
-
-        private
-
-        def selector(connection)
-          # Collation is always supported on 3.6+ servers that would use OP_MSG.
-          Utils.compact_hash(spec[:selector].merge(collation: spec[:collation]))
-        end
       end
     end
   end

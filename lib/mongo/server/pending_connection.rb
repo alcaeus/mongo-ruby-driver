@@ -114,8 +114,7 @@ module Mongo
         hello_doc = handshake_document(
           app_metadata,
           speculative_auth_doc: speculative_auth_doc,
-          load_balancer: server.load_balancer?,
-          server_api: options[:server_api]
+          server_api: options[:server_api],
         )
 
         # TODO (DR): OP_MSG should be used if api version is declared.
@@ -194,7 +193,7 @@ module Mongo
       # This is a separate method to keep the nesting level down.
       #
       # @return [ Server::Description ] The server description calculated from
-      #   the handshake response for this particular connection.
+      #   hello response for this particular connection.
       def post_handshake(response, average_rtt)
         if response["ok"] == 1
           # Auth mechanism is entirely dependent on the contents of
@@ -211,11 +210,7 @@ module Mongo
           @sasl_supported_mechanisms = nil
         end
 
-        @description = Description.new(
-          address, response,
-          average_round_trip_time: average_rtt,
-          load_balancer: server.load_balancer?,
-        ).tap do |new_description|
+        @description = Description.new(address, response, average_rtt).tap do |new_description|
           @server.cluster.run_sdam_flow(@server.description, new_description)
         end
       end

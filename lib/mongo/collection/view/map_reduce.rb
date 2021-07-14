@@ -156,28 +156,6 @@ module Mongo
           configure(:out, location)
         end
 
-        # Returns the collection name where the map-reduce result is written to.
-        # If the result is returned inline, returns nil.
-        def out_collection_name
-          if options[:out].respond_to?(:keys)
-            options[:out][OUT_ACTIONS.find do |action|
-              options[:out][action]
-            end]
-          end || options[:out]
-        end
-
-        # Returns the database name where the map-reduce result is written to.
-        # If the result is returned inline, returns nil.
-        def out_database_name
-          if options[:out]
-            if options[:out].respond_to?(:keys) && (db = options[:out][:db])
-              db
-            else
-              database.name
-            end
-          end
-        end
-
         # Set or get a scope on the operation.
         #
         # @example Set the scope value.
@@ -229,8 +207,6 @@ module Mongo
 
         private
 
-        OUT_ACTIONS = [ :replace, :merge, :reduce ].freeze
-
         def server_selector
           @view.send(:server_selector)
         end
@@ -252,12 +228,10 @@ module Mongo
         end
 
         def valid_server?(server)
-          if secondary_ok?
-            true
-          else
-            description = server.description
-            description.standalone? || description.mongos? || description.primary? || description.load_balancer?
+          description = server.with_connection do |connection|
+            connection.description
           end
+          description.standalone? || description.mongos? || description.primary? || secondary_ok?
         end
 
         def secondary_ok?
@@ -270,6 +244,7 @@ module Mongo
             log_warn(msg)
             server = cluster.next_primary(nil, session)
           end
+          validate_collation!(server)
           initial_query_op(session).execute(server, context: Operation::Context.new(client: client, session: session))
         end
 
@@ -282,20 +257,21 @@ module Mongo
         end
 
         def fetch_query_op(server, session)
-          spec = {
-            coll_name: out_collection_name,
-            db_name: out_database_name,
-            filter: {},
-            session: session,
-            read: read,
-            read_concern: options[:read_concern] || collection.read_concern,
-            collation: options[:collation] || view.options[:collation],
-          }
-          Operation::Find.new(spec)
+          if server.with_connection { |connection| connection.features }.find_command_enabled?
+            Operation::Find.new(find_command_spec(session))
+          else
+            Operation::Find.new(fetch_query_spec)
+          end
         end
 
         def send_fetch_query(server, session)
           fetch_query_op(server, session).execute(server, context: Operation::Context.new(client: client, session: session))
+        end
+
+        def validate_collation!(server)
+          if (view.options[:collation] || options[:collation]) && !server.with_connection { |connection| connection.features }.collation_enabled?
+            raise Error::UnsupportedCollation.new
+          end
         end
       end
     end

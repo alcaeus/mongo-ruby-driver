@@ -41,8 +41,6 @@ describe Mongo::Operation::SessionsSupported do
   let(:server) do
     double('server').tap do |server|
       allow(server).to receive(:cluster).and_return(cluster)
-      # TODO consider adding tests for load-balanced topologies also
-      allow(server).to receive(:load_balancer?).and_return(false)
     end
   end
 

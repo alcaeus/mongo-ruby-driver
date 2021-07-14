@@ -28,21 +28,14 @@ module Mongo
         include Specifiable
         include Executable
         include PolymorphicResult
-        include Validatable
 
         private
 
-        def selector(connection)
-          # This returns the first delete.
-          # The driver only puts one delete into the list normally, so this
-          # doesn't discard operations.
-          send(IDENTIFIER).first.tap do |selector|
-            validate_find_options(connection, selector)
-          end
+        def selector
+          send(IDENTIFIER).first
         end
 
         def message(connection)
-          selector = selector(connection)
           opts = (selector[Operation::LIMIT] || 0) <= 0 ? {} : { :flags => [ :single_remove ] }
           Protocol::Delete.new(db_name, coll_name, selector[Operation::Q], opts)
         end

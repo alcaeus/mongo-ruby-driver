@@ -4,8 +4,6 @@
 require 'spec_helper'
 
 describe 'SDAM error handling' do
-  require_topology :single, :replica_set, :sharded
-
   clean_slate
 
   after do

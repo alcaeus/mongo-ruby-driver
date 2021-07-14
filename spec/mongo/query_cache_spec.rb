@@ -139,11 +139,7 @@ describe Mongo::QueryCache do
 
   describe '#get' do
     let(:view) { double("Mongo::Collection::View") }
-    let(:result) do
-      double("Mongo::Operation::Result").tap do |result|
-        allow(result).to receive(:is_a?).with(Mongo::Operation::Result).and_return(true)
-      end
-    end
+    let(:result) { double("Mongo::Operation::Result") }
     let(:server) { double("Mongo::Server") }
     let(:caching_cursor) { Mongo::CachingCursor.new(view, result, server) }
 

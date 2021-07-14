@@ -5,10 +5,8 @@ require 'spec_helper'
 
 describe Mongo::Cluster::PeriodicExecutor do
 
-  let(:cluster) { double('cluster') }
-
   let(:executor) do
-    described_class.new(cluster)
+    described_class.new
   end
 
   describe '#log_warn' do

@@ -27,7 +27,6 @@ module Mongo
               'single' => :single,
               'sharded' => :sharded,
               'sharded-replicaset' => :sharded,
-              'load-balanced' => :load_balanced,
             }[topology].tap do |v|
               unless v
                 raise "Unknown topology #{topology}"

@@ -25,13 +25,6 @@ module Mongo
       # @since 2.0.0
       module Iterable
 
-        # Returns the cursor associated with this view, if any.
-        #
-        # @return [ nil | Cursor ] The cursor, if any.
-        #
-        # @api private
-        attr_reader :cursor
-
         # Iterate through documents returned by a query with this +View+.
         #
         # @example Iterate through the result of the view.
@@ -137,52 +130,36 @@ module Mongo
             projection: projection,
             collation: collation,
             read_concern: read_concern,
-            read_preference: read_preference,
+            read_preference: read_preference
+
           }
         end
 
         def initial_query_op(server, session)
-          spec = {
-            coll_name: collection.name,
-            filter: filter,
-            projection: projection,
-            db_name: database.name,
-            session: session,
-            collation: collation,
-            sort: sort,
-            skip: skip,
-            limit: limit,
-            allow_disk_use: options[:allow_disk_use],
-            read: read,
-            read_concern: options[:read_concern] || read_concern,
-            batch_size: batch_size,
-            hint: options[:hint],
-            max_time_ms: options[:max_time_ms],
-            max_value: options[:max_value],
-            min_value: options[:min_value],
-            return_key: options[:return_key],
-            show_disk_loc: options[:show_disk_loc],
-            comment: options[:comment],
-            oplog_replay: if (v = options[:oplog_replay]).nil?
-              collection.options[:oplog_replay]
-            else
-              v
-            end,
-          }
-
-          if spec[:oplog_replay]
-            collection.client.log_warn("The :oplog_replay option is deprecated and ignored by MongoDB 4.4 and later")
-          end
-
-          if explained?
-            spec[:explain] = options[:explain]
-            Operation::Explain.new(spec)
+          if server.with_connection { |connection| connection.features }.find_command_enabled?
+            initial_command_op(session)
           else
-            Operation::Find.new(spec)
+            # Server versions that do not have the find command feature
+            # (versions older than 3.2) do not support the allow_disk_use option
+            # but perform no validation and will not raise an error if it is
+            # specified. If the allow_disk_use option is specified, raise an error
+            # to alert the user.
+            raise Error::UnsupportedOption.allow_disk_use_error if options.key?(:allow_disk_use)
+            Operation::Find.new(Builder::OpQuery.new(self).specification)
+          end
+        end
+
+        def initial_command_op(session)
+          builder = Builder::FindCommand.new(self, session)
+          if explained?
+            Operation::Explain.new(builder.explain_specification)
+          else
+            Operation::Find.new(builder.specification)
           end
         end
 
         def send_initial_query(server, session = nil)
+          validate_collation!(server, collation)
           initial_query_op(server, session).execute(server, context: Operation::Context.new(client: client, session: session))
         end
 

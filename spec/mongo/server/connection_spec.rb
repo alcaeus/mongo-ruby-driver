@@ -448,16 +448,8 @@ describe Mongo::Server::Connection do
           )
         end
 
-        let(:exception) do
-          Mongo::Error::SocketError.new.tap do |exc|
-            if server.load_balancer?
-              allow(exc).to receive(:service_id).and_return('fake')
-            end
-          end
-        end
-
         let(:error) do
-          expect_any_instance_of(auth_mechanism).to receive(:login).and_raise(exception)
+          expect_any_instance_of(auth_mechanism).to receive(:login).and_raise(Mongo::Error::SocketError)
           begin
             connection.send(:connect!)
           rescue => ex
@@ -825,10 +817,8 @@ describe Mongo::Server::Connection do
           # of the test, i.e. to avoid racing with the monitor thread
           # which may put the server back into non-unknown state before
           # we can verify that the server was marked unknown, kill off
-          # the monitor thread.
-          unless ClusterConfig.instance.topology == :load_balanced
-            server.monitor.instance_variable_get('@thread').kill
-          end
+          # the monitor thread
+          server.monitor.instance_variable_get('@thread').kill
         end
       end
 
@@ -854,43 +844,26 @@ describe Mongo::Server::Connection do
           expect(connection).to be_error
         end
 
-        context 'in load-balanced topology' do
-          require_topology :load_balanced
-
-          it 'disconnects connection pool for service id' do
-            connection.service_id.should_not be nil
-
-            RSpec::Mocks.with_temporary_scope do
-              expect(server.pool).to receive(:disconnect!).with(service_id: connection.service_id)
-              result
-            end
-          end
-
-          it 'does not mark server unknown' do
-            expect(server).not_to be_unknown
-            result
-            expect(server).not_to be_unknown
-          end
+        it 'disconnects connection pool' do
+          expect(server.pool).to receive(:disconnect!)
+          result
         end
 
-        context 'in non-lb topologies' do
-          require_topology :single, :replica_set, :sharded
-
-          it 'disconnects connection pool' do
-            expect(server.pool).to receive(:disconnect!)
-            result
-          end
-
-          it 'marks server unknown' do
-            expect(server).not_to be_unknown
-            result
-            expect(server).to be_unknown
-          end
+        it 'marks server unknown' do
+          expect(server).not_to be_unknown
+          result
+          expect(server).to be_unknown
         end
 
         it 'does not request server scan' do
           expect(server.scan_semaphore).not_to receive(:signal)
           result
+        end
+
+        it 'marks server unknown' do
+          expect(server).not_to be_unknown
+          result
+          expect(server).to be_unknown
         end
       end
 

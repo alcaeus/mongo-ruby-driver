@@ -15,7 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'mongo/operation/get_more/command_builder'
 require 'mongo/operation/get_more/command'
 require 'mongo/operation/get_more/op_msg'
 require 'mongo/operation/get_more/legacy'

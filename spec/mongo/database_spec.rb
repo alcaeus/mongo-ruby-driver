@@ -732,12 +732,12 @@ describe Mongo::Database do
         database.cluster.next_primary
       end
 
-      it 'uses read preference of primary' do
-        RSpec::Mocks.with_temporary_scope do
-          expect(primary_server).to receive(:with_connection).with(any_args).and_call_original
+      before do
+        expect(primary_server).to receive(:with_connection).at_least(:once).and_call_original
+      end
 
-          expect(database.command(ping: 1)).to be_successful
-        end
+      it 'uses read preference of primary' do
+        expect(database.command(ping: 1)).to be_successful
       end
     end
 
@@ -760,12 +760,12 @@ describe Mongo::Database do
         described_class.new(client, SpecConfig.instance.test_db, client.options)
       end
 
-      it 'does not use the client read preference 'do
-        RSpec::Mocks.with_temporary_scope do
-          expect(primary_server).to receive(:with_connection).with(any_args).and_call_original
+      before do
+        expect(primary_server).to receive(:with_connection).at_least(:once).and_call_original
+      end
 
-          expect(database.command(ping: 1)).to be_successful
-        end
+      it 'does not use the client read preference 'do
+        expect(database.command(ping: 1)).to be_successful
       end
     end
 

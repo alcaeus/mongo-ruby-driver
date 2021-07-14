@@ -24,18 +24,9 @@ module Mongo
     # in a single container, and provides facade methods for the contained
     # objects.
     #
-    # The context contains parameters for operations, and as such while an
-    # operation is being prepared nothing in the context should change.
-    # When the result of the operation is being processed, the data
-    # returned by the context may change (for example, because a transaction
-    # is aborted), but at that point the operation should no longer read
-    # anything from the context. Because context data may change during
-    # operation execution, context objects should not be reused for multiple
-    # operations.
-    #
     # @api private
     class Context
-      def initialize(client: nil, session: nil, service_id: nil, options: nil)
+      def initialize(client: nil, session: nil, options: nil)
         if options
           if client
             raise ArgumentError, 'Client and options cannot both be specified'
@@ -46,23 +37,14 @@ module Mongo
           end
         end
 
-        if service_id && session&.pinned_service_id
-          raise ArgumentError, 'Trying to pin context to a service when the session is already pinned to a service'
-        end
-
         @client = client
         @session = session
-        @service_id = service_id
         @options = options
       end
 
       attr_reader :client
       attr_reader :session
       attr_reader :options
-
-      def service_id
-        @service_id || session&.pinned_service_id
-      end
 
       def in_transaction?
         session&.in_transaction? || false

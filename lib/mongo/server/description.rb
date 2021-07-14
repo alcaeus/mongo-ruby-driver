@@ -15,6 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'mongo/server/description/features'
+
 module Mongo
   class Server
 
@@ -199,8 +201,7 @@ module Mongo
                                ].freeze
 
       # Instantiate the new server description from the result of the hello
-      # command or fabricate a placeholder description for Unknown and
-      # LoadBalancer servers.
+      # command.
       #
       # @example Instantiate the new description.
       #   Description.new(address, { 'isWritablePrimary' => true }, 0.5)
@@ -208,29 +209,16 @@ module Mongo
       # @param [ Address ] address The server address.
       # @param [ Hash ] config The result of the hello command.
       # @param [ Float ] average_round_trip_time The moving average time (sec) the hello
-      #   command took to complete.
-      # @param [ Float ] average_round_trip_time The moving average time (sec)
-      #   the ismaster call took to complete.
-      # @param [ true | false ] load_balancer Whether the server is a load
-      #   balancer.
+      #   call took to complete.
       #
-      # @api private
-      def initialize(address, config = {}, average_round_trip_time: nil,
-        load_balancer: false
-      )
+      # @since 2.0.0
+      def initialize(address, config = {}, average_round_trip_time = nil)
         @address = address
         @config = config
-        @load_balancer = !!load_balancer
         @features = Features.new(wire_versions, me || @address.to_s)
         @average_round_trip_time = average_round_trip_time
         @last_update_time = Time.now.freeze
         @last_update_monotime = Utils.monotonic_time
-
-        if load_balancer
-          if ok? && !service_id
-            @config = @config.merge('serviceId' => "fake:#{rand(2**32-1)+1}")
-          end
-        end
 
         if Mongo::Lint.enabled?
           # prepopulate cache instance variables
@@ -249,23 +237,9 @@ module Mongo
       # @return [ Hash ] The actual result from the hello command.
       attr_reader :config
 
-      # Returns whether this server is a load balancer.
-      #
-      # @return [ true | false ] Whether this server is a load balancer.
-      def load_balancer?
-        @load_balancer
-      end
-
       # @return [ Features ] features The features for the server.
       def features
         @features
-      end
-
-      # @return [ nil | Object ] The service id, if any.
-      def service_id
-        if load_balancer?
-          rand(2**32-1) + 1
-        end
       end
 
       # @return [ Float ] The moving average time the hello call took to complete.
@@ -651,7 +625,6 @@ module Mongo
       #
       # @since 2.4.0
       def server_type
-        return :load_balancer if load_balancer?
         return :arbiter if arbiter?
         return :ghost if ghost?
         return :sharded if mongos?
@@ -686,7 +659,6 @@ module Mongo
       #
       # @since 2.0.0
       def unknown?
-        return false if load_balancer?
         config.empty? || config.keys == %w(topologyVersion) || !ok?
       end
 
@@ -808,11 +780,6 @@ module Mongo
         config['connectionId']
       end
 
-      # @api experimental
-      def service_id
-        config['serviceId']
-      end
-
       # Check equality of two descriptions.
       #
       # @example Check description equality.
@@ -858,19 +825,8 @@ module Mongo
             raise ArgumentError, "Bogus required version #{version}"
           end
 
-        if load_balancer?
-          # If we are talking to a load balancer, there is no monitoring
-          # and we don't know what server is behind the load balancer.
-          # Assume everything is supported.
-          # TODO remove this when RUBY-2220 is implemented.
-          return true
-        end
-
         required_wv >= min_wire_version && required_wv <= max_wire_version
       end
     end
   end
 end
-
-require 'mongo/server/description/features'
-require 'mongo/server/description/load_balancer'

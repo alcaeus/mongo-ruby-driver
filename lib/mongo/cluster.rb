@@ -203,7 +203,7 @@ module Mongo
       @connected = true
 
       if options[:cleanup] != false
-        @cursor_reaper = CursorReaper.new(self)
+        @cursor_reaper = CursorReaper.new
         @socket_reaper = SocketReaper.new(self)
         @periodic_executor = PeriodicExecutor.new([
           @cursor_reaper, @socket_reaper,
@@ -212,56 +212,54 @@ module Mongo
         @periodic_executor.run!
       end
 
-      unless load_balanced?
-        # Need to record start time prior to starting monitoring
-        start_monotime = Utils.monotonic_time
+      # Need to record start time prior to starting monitoring
+      start_monotime = Utils.monotonic_time
 
-        servers.each do |server|
-          server.start_monitoring
-        end
-
-        if options[:scan] != false
-          server_selection_timeout = options[:server_selection_timeout] || ServerSelector::SERVER_SELECTION_TIMEOUT
-          # The server selection timeout can be very short especially in
-          # tests, when the client waits for a synchronous scan before
-          # starting server selection. Limiting the scan to server selection time
-          # then aborts the scan before it can process even local servers.
-          # Therefore, allow at least 3 seconds for the scan here.
-          if server_selection_timeout < 3
-            server_selection_timeout = 3
-          end
-          deadline = start_monotime + server_selection_timeout
-          # Wait for the first scan of each server to complete, for
-          # backwards compatibility.
-          # If any servers are discovered during this SDAM round we are going to
-          # wait for these servers to also be queried, and so on, up to the
-          # server selection timeout or the 3 second minimum.
-          loop do
-            # Ensure we do not try to read the servers list while SDAM is running
-            servers = @sdam_flow_lock.synchronize do
-              servers_list.dup
-            end
-            if servers.all? { |server| server.last_scan_monotime && server.last_scan_monotime >= start_monotime }
-              break
-            end
-            if (time_remaining = deadline - Utils.monotonic_time) <= 0
-              break
-            end
-            log_debug("Waiting for up to #{'%.2f' % time_remaining} seconds for servers to be scanned: #{summary}")
-            # Since the semaphore may have been signaled between us checking
-            # the servers list above and the wait call below, we should not
-            # wait for the full remaining time - wait for up to 1 second, then
-            # recheck the state.
-            begin
-              server_selection_semaphore.wait([time_remaining, 1].min)
-            rescue ::Timeout::Error
-              # nothing
-            end
-          end
-        end
-
-        start_stop_srv_monitor
+      servers.each do |server|
+        server.start_monitoring
       end
+
+      if options[:scan] != false
+        server_selection_timeout = options[:server_selection_timeout] || ServerSelector::SERVER_SELECTION_TIMEOUT
+        # The server selection timeout can be very short especially in
+        # tests, when the client waits for a synchronous scan before
+        # starting server selection. Limiting the scan to server selection time
+        # then aborts the scan before it can process even local servers.
+        # Therefore, allow at least 3 seconds for the scan here.
+        if server_selection_timeout < 3
+          server_selection_timeout = 3
+        end
+        deadline = start_monotime + server_selection_timeout
+        # Wait for the first scan of each server to complete, for
+        # backwards compatibility.
+        # If any servers are discovered during this SDAM round we are going to
+        # wait for these servers to also be queried, and so on, up to the
+        # server selection timeout or the 3 second minimum.
+        loop do
+          # Ensure we do not try to read the servers list while SDAM is running
+          servers = @sdam_flow_lock.synchronize do
+            servers_list.dup
+          end
+          if servers.all? { |server| server.last_scan_monotime && server.last_scan_monotime >= start_monotime }
+            break
+          end
+          if (time_remaining = deadline - Utils.monotonic_time) <= 0
+            break
+          end
+          log_debug("Waiting for up to #{'%.2f' % time_remaining} seconds for servers to be scanned: #{summary}")
+          # Since the semaphore may have been signaled between us checking
+          # the servers list above and the wait call below, we should not
+          # wait for the full remaining time - wait for up to 1 second, then
+          # recheck the state.
+          begin
+            server_selection_semaphore.wait([time_remaining, 1].min)
+          rescue ::Timeout::Error
+            # nothing
+          end
+        end
+      end
+
+      start_stop_srv_monitor
     end
 
     # Create a cluster for the provided client, for use when we don't want the
@@ -322,14 +320,6 @@ module Mongo
 
     def_delegators :topology, :replica_set?, :replica_set_name, :sharded?,
                    :single?, :unknown?
-
-    # Returns whether the cluster is configured to be in the load-balanced
-    # topology.
-    #
-    # @return [ true | false ] Whether the topology is load-balanced.
-    def load_balanced?
-      topology.is_a?(Topology::LoadBalanced)
-    end
 
     [:register_cursor, :schedule_kill_cursor, :unregister_cursor].each do |m|
       define_method(m) do |*args|
@@ -609,25 +599,9 @@ module Mongo
     #   on 4.2+ servers).
     # @option aptions [ true | false ] :awaited Whether the updated description
     #   was a result of processing an awaited hello.
-    # @option options [ Object ] :service_id Change state for the specified
-    #   service id only.
     #
     # @api private
     def run_sdam_flow(previous_desc, updated_desc, options = {})
-      if load_balanced?
-        if updated_desc.config.empty?
-          unless options[:keep_connection_pool]
-            servers_list.each do |server|
-              # TODO should service id be taken out of updated_desc?
-              # We could also assert that
-              # options[:service_id] == updated_desc.service_id
-              server.clear_connection_pool(service_id: options[:service_id])
-            end
-          end
-        end
-        return
-      end
-
       @sdam_flow_lock.synchronize do
         flow = SdamFlow.new(self, previous_desc, updated_desc,
           awaited: options[:awaited])
@@ -808,11 +782,8 @@ module Mongo
     def add(host, add_options=nil)
       address = Address.new(host, options)
       if !addresses.include?(address)
-        opts = options.merge(monitor: false)
-        if Topology::LoadBalanced === topology
-          opts[:load_balancer] = true
-        end
-        server = Server.new(address, self, @monitoring, event_listeners, opts)
+        server = Server.new(address, self, @monitoring, event_listeners, options.merge(
+          monitor: false))
         @update_lock.synchronize do
           # Need to recheck whether server is present in @servers, because
           # the previous check was not under a lock.
@@ -928,10 +899,6 @@ module Mongo
     #
     # @api private
     def validate_session_support!
-      if topology.is_a?(Topology::LoadBalanced)
-        return
-      end
-
       @state_change_lock.synchronize do
         @sdam_flow_lock.synchronize do
           if topology.data_bearing_servers?

@@ -88,11 +88,11 @@ module Mongo
           @address = address
           @request_id = request_id
           @operation_id = operation_id
-          @service_id = service_id
           @message = message
           @started_event = started_event
           @failure = redacted(command_name, failure)
           @duration = duration
+          @service_id = service_id
         end
 
         # Returns a concise yet useful summary of the event.

@@ -34,19 +34,7 @@ module Mongo
         private
 
         def selector(connection)
-          # The mappings are BSON::Documents and as such store keys as
-          # strings, the spec here has symbol keys.
-          spec = BSON::Document.new(self.spec)
-
-          if spec[:collation] && !connection.features.collation_enabled?
-            raise Error::UnsupportedCollation
-          end
-
-          {
-            explain: {
-              find: coll_name,
-            }.update(Find::Builder::Command.selector(spec, connection)),
-          }.update(spec[:explain] || {})
+          super.merge(spec[:explain])
         end
 
         def message(connection)

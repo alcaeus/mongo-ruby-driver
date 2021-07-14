@@ -208,12 +208,6 @@ module Mongo
     # @api private
     attr_reader :pinned_server
 
-    # @return [ Object | nil ] The service id that this session is pinned to,
-    #   if any.
-    #
-    # @api private
-    attr_reader :pinned_service_id
-
     # @return [ BSON::Document | nil ] Recovery token for the sharded
     #   transaction being executed on this session, if any.
     #
@@ -701,7 +695,7 @@ module Mongo
     # @param [ Server ] server The server to pin this session to.
     #
     # @api private
-    def pin_to_server(server)
+    def pin(server)
       if server.nil?
         raise ArgumentError, 'Cannot pin to a nil server'
       end
@@ -713,24 +707,11 @@ module Mongo
       @pinned_server = server
     end
 
-    # Pins this session to the specified service.
-    #
-    # @param [ Object ] service_id The service id to pin this session to.
-    #
-    # @api private
-    def pin_to_service(service_id)
-      if service_id.nil?
-        raise ArgumentError, 'Cannot pin to a nil service id'
-      end
-      @pinned_service_id = service_id
-    end
-
     # Unpins this session from the pinned server, if the session was pinned.
     #
     # @api private
     def unpin
       @pinned_server = nil
-      @pinned_service_id = nil
     end
 
     # Unpins this session from the pinned server, if the session was pinned
